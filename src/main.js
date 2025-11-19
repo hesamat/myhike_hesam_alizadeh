@@ -2,7 +2,7 @@ import {
     onAuthReady
 } from "./authentication.js"
 import { db } from "./firebaseConfig.js";
-import { doc, onSnapshot, getDoc } from "firebase/firestore";
+import { doc, onSnapshot, getDoc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { collection, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
 
 // Helper function to add the sample hike documents.
@@ -45,28 +45,6 @@ async function seedHikes() {
 // Call the seeding function when the main.html page loads.
 seedHikes();
 
-function showDashboard() {
-    const nameElement = document.getElementById("name-goes-here"); // the <h1> element to display "Hello, {name}"
-
-    onAuthReady(async (user) => {
-        if (!user) {
-            // If no user is signed in → redirect back to login page.
-            location.href = "index.html";
-            return;
-        }
-
-        const userDoc = await getDoc(doc(db, "users", user.uid));
-        const name = userDoc.exists()
-            ? userDoc.data().name
-            : user.displayName || user.email;
-
-        // Update the welcome message with their name/email.
-        if (nameElement) {
-            nameElement.textContent = `${name}!`;
-        }
-    });
-}
-
 // Function to read the quote of the day from Firestore
 function readQuote(day) {
     const quoteDocRef = doc(db, "quotes", day); // Get a reference to the document
@@ -82,16 +60,40 @@ function readQuote(day) {
     });
 }
 
-async function displayCardsDynamically() {
-    let cardTemplate = document.getElementById("hikeCardTemplate");
+function setWelcomeMessage(name) {
+    const nameElement = document.getElementById("name-goes-here");
+    if (nameElement) {
+        nameElement.textContent = `${name}!`;
+    }
+}
+
+async function toggleFavorite(userId, hikeId, shouldFavorite) {
+    const userRef = doc(db, "users", userId);
+    return updateDoc(userRef, {
+        favorites: shouldFavorite ? arrayUnion(hikeId) : arrayRemove(hikeId)
+    });
+}
+
+function setFavoriteButtonState(button, isFavorite) {
+    if (!button) return;
+    button.textContent = isFavorite ? "Remove Favorite" : "Add to Favorites";
+    button.classList.toggle("btn-outline-primary", !isFavorite);
+    button.classList.toggle("btn-warning", isFavorite);
+}
+
+async function displayCardsDynamically(userId, favorites = []) {
+    const cardTemplate = document.getElementById("hikeCardTemplate");
     const hikesCollectionRef = collection(db, "hikes");
+    const hikeContainer = document.getElementById("hikes-go-here");
+    let currentFavorites = [...favorites];
 
     try {
         const querySnapshot = await getDocs(hikesCollectionRef);
-        querySnapshot.forEach(doc => {
+        querySnapshot.forEach(docSnap => {
             // Clone the template
-            let newcard = cardTemplate.content.cloneNode(true);
-            const hike = doc.data(); // Get hike data once
+            const newcard = cardTemplate.content.cloneNode(true);
+            const hike = docSnap.data();
+            const hikeId = docSnap.id;
 
             // Populate the card with hike data
             newcard.querySelector('.card-title').textContent = hike.name;
@@ -101,19 +103,57 @@ async function displayCardsDynamically() {
             newcard.querySelector('.card-image').src = `./images/${hike.code}.jpg`;
 
             // Add the link with the document ID
-            newcard.querySelector(".read-more").href = `eachHike.html?docID=${doc.id}`;
+            newcard.querySelector(".read-more").href = `eachHike.html?docID=${hikeId}`;
+
+            // Favorite button behaviour
+            const favoriteButton = newcard.querySelector(".favorite-toggle");
+            const isFavorite = currentFavorites.includes(hikeId);
+            setFavoriteButtonState(favoriteButton, isFavorite);
+
+            favoriteButton?.addEventListener("click", async () => {
+                favoriteButton.disabled = true;
+                const nowFavorite = !currentFavorites.includes(hikeId);
+                try {
+                    await toggleFavorite(userId, hikeId, nowFavorite);
+                    if (nowFavorite) {
+                        currentFavorites.push(hikeId);
+                    } else {
+                        currentFavorites = currentFavorites.filter(id => id !== hikeId);
+                    }
+                    setFavoriteButtonState(favoriteButton, nowFavorite);
+                } catch (error) {
+                    console.error("Failed to update favorite:", error);
+                } finally {
+                    favoriteButton.disabled = false;
+                }
+            });
 
             // Attach the new card to the container
-            document.getElementById("hikes-go-here").appendChild(newcard);
+            hikeContainer.appendChild(newcard);
         });
     } catch (error) {
         console.error("Error getting documents: ", error);
     }
 }
 
-// Call the function to display cards when the page loads
-displayCardsDynamically();
+function initMainPage() {
+    onAuthReady(async (user) => {
+        if (!user) {
+            // If no user is signed in → redirect back to login page.
+            location.href = "index.html";
+            return;
+        }
+
+        const userDocRef = doc(db, "users", user.uid);
+        const userDoc = await getDoc(userDocRef);
+        const userData = userDoc.data() || {};
+        const name = userData.name || user.displayName || user.email;
+        const favorites = Array.isArray(userData.favorites) ? userData.favorites : [];
+
+        setWelcomeMessage(name);
+        displayCardsDynamically(user.uid, favorites);
+    });
+}
 
 readQuote("tuesday");
-
-showDashboard();
+initMainPage();

@@ -65,13 +65,20 @@ class SiteNavbar extends HTMLElement {
         onAuthStateChanged(auth, (user) => {
             let updatedAuthControl;
 
-            // Remove existing "Profile" link if present (avoid duplicates)
+            // Remove existing "Profile" and "Favorites" links if present (avoid duplicates)
             const existingProfile = navList?.querySelector('#profileLink');
+            const existingFavorites = navList?.querySelector('#favoritesLink');
             if (existingProfile) existingProfile.remove();
+            if (existingFavorites) existingFavorites.remove();
 
             if (user) {
                 // 1️⃣ Add Profile item to menu
                 if (navList) {
+                    const favoritesItem = document.createElement('li');
+                    favoritesItem.classList.add('nav-item');
+                    favoritesItem.innerHTML = `<a class="nav-link" id="favoritesLink" href="/favorites.html">Favorites</a>`;
+                    navList.appendChild(favoritesItem);
+
                     const profileItem = document.createElement('li');
                     profileItem.classList.add('nav-item');
                     profileItem.innerHTML = `<a class="nav-link" id="profileLink" href="/profile.html">Profile</a>`;
